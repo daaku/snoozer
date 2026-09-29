@@ -55,6 +55,17 @@ func (a *Alarm) label() string {
 	return a.Label
 }
 
+// Summary is what the CLI prints after an alarm is added, and what a desktop
+// notification shows, for example "Alarm set for Wed 03:04pm: go for a walk".
+// The label is left out when there is none.
+func (a *Alarm) Summary() string {
+	msg := "Alarm set for " + a.At.Format("Mon 03:04pm")
+	if label := strings.TrimSpace(a.Label); label != "" {
+		msg += ": " + label
+	}
+	return msg
+}
+
 // snoozeDuration returns how long a snooze lasts, defaulting to 9m.
 func (a *Alarm) snoozeDuration() (time.Duration, error) {
 	return parseDuration(a.Snooze, defaultSnooze)

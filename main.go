@@ -68,7 +68,7 @@ func run() error {
 		return err
 	}
 	notifyDaemon(s)
-	fmt.Printf("alarm set for %s\n", a.At.Format("Mon 03:04pm"))
+	fmt.Println(a.Summary())
 	return nil
 }
 

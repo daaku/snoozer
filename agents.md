@@ -18,11 +18,15 @@ snoozer                # run the daemon in the foreground (no args)
 The config directory holds `alarms.json`, `alarms.lock`, `daemon.lock`,
 `daemon.pid`, and the installed `alarm.ogg`.
 
+Adding an alarm prints one line, `Alarm set for Tue 05:24pm: go for a walk`,
+from `Alarm.Summary`. That line is also what whispy shows as a desktop
+notification when an alarm is set by voice, so keep it a single line.
+
 ## Layout
 
 - `main.go`: dispatch and the CLI. The `//go:embed alarm.ogg` lives here.
-- `alarm.go`: `Alarm`/`State`, defaults, `--at`/`--repeat` parsing, and the
-  locked atomic store.
+- `alarm.go`: `Alarm`/`State`, defaults, `--at`/`--repeat` parsing, the
+  `Summary` line the CLI prints, and the locked atomic store.
 - `daemon.go`: the singleton lock, the next-wake loop, mpv and zenity.
 - `alarm_test.go`: parsing, scheduling, and store tests.
 - `snoozer.service`, `PKGBUILD`, `license`: the systemd user unit and the

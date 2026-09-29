@@ -137,6 +137,25 @@ func TestBuildAlarmErrors(t *testing.T) {
 	}
 }
 
+func TestSummary(t *testing.T) {
+	at := time.Date(2024, 1, 3, 15, 4, 0, 0, time.UTC) // a Wednesday
+	cases := []struct {
+		label string
+		want  string
+	}{
+		{"", "Alarm set for Wed 03:04pm"},
+		{"  ", "Alarm set for Wed 03:04pm"},
+		{"go for a walk", "Alarm set for Wed 03:04pm: go for a walk"},
+		{" School Pick Up ", "Alarm set for Wed 03:04pm: School Pick Up"},
+	}
+	for _, c := range cases {
+		a := &Alarm{At: at, Label: c.label}
+		if got := a.Summary(); got != c.want {
+			t.Errorf("Summary() with label %q = %q, want %q", c.label, got, c.want)
+		}
+	}
+}
+
 func TestAlarmDefaults(t *testing.T) {
 	a := &Alarm{}
 	if a.label() != defaultLabel {
