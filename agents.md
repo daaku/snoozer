@@ -25,6 +25,8 @@ The config directory holds `alarms.json`, `alarms.lock`, `daemon.lock`,
   locked atomic store.
 - `daemon.go`: the singleton lock, the next-wake loop, mpv and zenity.
 - `alarm_test.go`: parsing, scheduling, and store tests.
+- `snoozer.service`, `PKGBUILD`, `license`: the systemd user unit and the
+  Arch package that installs it.
 
 ## systemd
 
@@ -41,6 +43,18 @@ systemctl --user enable --now snoozer
 
 `systemctl --user status snoozer` and `journalctl --user -u snoozer -f` are
 the places to look when the daemon misbehaves.
+
+## Package
+
+`PKGBUILD` builds with `go build -trimpath` and installs the binary to
+`/usr/bin`, the unit to `/usr/lib/systemd/user`, and the MIT license. Like
+whispy's, it assumes makepkg runs in the repo root: `build()` and `package()`
+`cd ..` because makepkg's working directory is the `src/` subdirectory, and
+`/pkg` and `/src` are gitignored build artifacts.
+
+```sh
+makepkg -si
+```
 
 ## Invariants
 

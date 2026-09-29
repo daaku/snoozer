@@ -1,1 +1,0 @@
-- Add a PKGBUILD, see ~/workspace/whispy/PKGBUILD for reference
