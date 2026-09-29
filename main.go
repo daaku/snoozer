@@ -1,6 +1,6 @@
 // Command snoozer is an alarm clock for Linux. With no arguments it runs the
-// daemon; with --in or --at it adds an alarm and wakes the daemon so it
-// reschedules. The same binary is both the CLI and the daemon.
+// daemon in the foreground; with --in or --at it adds an alarm and wakes the
+// daemon so it reschedules. The same binary is both the CLI and the daemon.
 package main
 
 import (
@@ -16,9 +16,6 @@ import (
 	"github.com/daaku/serr"
 )
 
-// daemonEnv marks the re-executed child that should actually run the daemon.
-const daemonEnv = "SNOOZER_DAEMON"
-
 // alarmOgg is the bundled default sound, installed into the config directory
 // on first use so the daemon can play it.
 //
@@ -33,13 +30,7 @@ func main() {
 }
 
 func run() error {
-	switch {
-	case len(os.Args) == 1:
-		if os.Getenv(daemonEnv) == "1" {
-			return runDaemon()
-		}
-		return daemonize()
-	case os.Args[1] == "--foreground":
+	if len(os.Args) == 1 {
 		return runDaemon()
 	}
 	fs := flag.NewFlagSet("snoozer", flag.ContinueOnError)

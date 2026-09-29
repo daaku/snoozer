@@ -11,50 +11,15 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/daaku/serr"
 )
 
-// daemonize re-executes the binary detached from the terminal so the daemon
-// keeps running after the CLI returns. Its output goes to the daemon log.
-func daemonize() error {
-	s, err := newStore()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(s.dir, 0o755); err != nil {
-		return serr.Wrap(err)
-	}
-	if pid, ok := s.runningPID(); ok {
-		fmt.Fprintf(os.Stderr, "snoozer: daemon already running (pid %d)\n", pid)
-		return nil
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return serr.Wrap(err)
-	}
-	logFile, err := os.OpenFile(s.logPath(), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return serr.Wrap(err)
-	}
-	defer logFile.Close()
-	cmd := exec.Command(exe)
-	cmd.Env = append(os.Environ(), daemonEnv+"=1")
-	cmd.Stdin = nil
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if err := cmd.Start(); err != nil {
-		return serr.Wrap(err)
-	}
-	return cmd.Process.Release()
-}
-
-// runDaemon is the background loop: it sleeps until the next alarm, reloads
-// on SIGUSR1, and rings due alarms. Only one daemon runs at a time.
+// runDaemon is the foreground loop: it sleeps until the next alarm, reloads
+// on SIGUSR1, and rings due alarms. Only one daemon runs at a time. systemd
+// (or whatever supervises it) owns backgrounding and restarts.
 func runDaemon() error {
 	s, err := newStore()
 	if err != nil {
@@ -112,22 +77,6 @@ func newTimer(t time.Time) *time.Timer {
 }
 
 func (s *store) daemonLockPath() string { return filepath.Join(s.dir, "daemon.lock") }
-
-// runningPID reports the pid of a live daemon, if there is one.
-func (s *store) runningPID() (int, bool) {
-	b, err := os.ReadFile(s.pidPath())
-	if err != nil {
-		return 0, false
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
-	if err != nil || pid <= 0 {
-		return 0, false
-	}
-	if err := syscall.Kill(pid, 0); err != nil && err != syscall.EPERM {
-		return 0, false
-	}
-	return pid, true
-}
 
 // lockDaemon takes the singleton lock and records the pid for CLI signals.
 func lockDaemon(s *store) (func(), error) {

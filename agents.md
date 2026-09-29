@@ -12,19 +12,18 @@ go build
 snoozer --in=5m --label='go for a walk'
 snoozer --at=3:30pm --repeat=tue --label='School Pick Up'
 snoozer --at=2pm --repeat=all --label='Vitamins'
-snoozer                # detach the daemon (no args)
-snoozer --foreground   # run the daemon in the terminal, for debugging
+snoozer                # run the daemon in the foreground (no args)
 ```
 
 The config directory holds `alarms.json`, `alarms.lock`, `daemon.lock`,
-`daemon.pid`, `daemon.log`, and the installed `alarm.ogg`.
+`daemon.pid`, and the installed `alarm.ogg`.
 
 ## Layout
 
 - `main.go`: dispatch and the CLI. The `//go:embed alarm.ogg` lives here.
 - `alarm.go`: `Alarm`/`State`, defaults, `--at`/`--repeat` parsing, and the
   locked atomic store.
-- `daemon.go`: detach, singleton lock, the next-wake loop, mpv and zenity.
+- `daemon.go`: the singleton lock, the next-wake loop, mpv and zenity.
 - `alarm_test.go`: parsing, scheduling, and store tests.
 
 ## Invariants
@@ -50,5 +49,5 @@ The config directory holds `alarms.json`, `alarms.lock`, `daemon.lock`,
   `daemon.pid`. The daemon re-reads state and rebuilds its timer on receipt.
 - On startup the daemon rings any alarm whose `At` is already in the past
   (catch-up), then advances or drops it.
-- The detached child is marked with `SNOOZER_DAEMON=1` so it does not
-  re-detach.
+- The daemon does not fork. It runs in the foreground and logs to stderr, so a
+  supervisor such as systemd owns backgrounding, restarts and the journal.

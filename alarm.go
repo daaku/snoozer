@@ -265,7 +265,6 @@ func newStore() (*store, error) {
 func (s *store) alarmsPath() string { return filepath.Join(s.dir, "alarms.json") }
 func (s *store) lockPath() string   { return filepath.Join(s.dir, "alarms.lock") }
 func (s *store) pidPath() string    { return filepath.Join(s.dir, "daemon.pid") }
-func (s *store) logPath() string    { return filepath.Join(s.dir, "daemon.log") }
 func (s *store) soundPath(name string) string {
 	return filepath.Join(s.dir, name)
 }
