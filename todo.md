@@ -1,2 +1,1 @@
-- Add a systemd user unit for the daemon
 - Add a PKGBUILD, see ~/workspace/whispy/PKGBUILD for reference

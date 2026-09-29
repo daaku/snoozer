@@ -1,0 +1,14 @@
+[Unit]
+Description=Snoozer alarm daemon
+Documentation=https://github.com/daaku/snoozer
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/snoozer
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

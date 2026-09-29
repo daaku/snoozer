@@ -26,6 +26,22 @@ The config directory holds `alarms.json`, `alarms.lock`, `daemon.lock`,
 - `daemon.go`: the singleton lock, the next-wake loop, mpv and zenity.
 - `alarm_test.go`: parsing, scheduling, and store tests.
 
+## systemd
+
+`snoozer.service` is the user unit; the PKGBUILD installs it to
+`/usr/lib/systemd/user/`. It runs `/usr/bin/snoozer` in the foreground, waits
+for `graphical-session.target` so zenity has a display, and restarts on
+failure. Install it by hand with:
+
+```sh
+install -Dm644 snoozer.service ~/.config/systemd/user/snoozer.service
+systemctl --user daemon-reload
+systemctl --user enable --now snoozer
+```
+
+`systemctl --user status snoozer` and `journalctl --user -u snoozer -f` are
+the places to look when the daemon misbehaves.
+
 ## Invariants
 
 - Every state change goes through `store.update`, which takes the `flock` so
