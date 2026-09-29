@@ -49,5 +49,6 @@ The config directory holds `alarms.json`, `alarms.lock`, `daemon.lock`,
   `daemon.pid`. The daemon re-reads state and rebuilds its timer on receipt.
 - On startup the daemon rings any alarm whose `At` is already in the past
   (catch-up), then advances or drops it.
-- The daemon does not fork. It runs in the foreground and logs to stderr, so a
-  supervisor such as systemd owns backgrounding, restarts and the journal.
+- The daemon does not fork. It runs in the foreground and logs to stderr with
+  no timestamp of its own, so a supervisor such as systemd owns backgrounding,
+  restarts and the journal, and journald's stamp is the only one.

@@ -21,6 +21,11 @@ import (
 // on SIGUSR1, and rings due alarms. Only one daemon runs at a time. systemd
 // (or whatever supervises it) owns backgrounding and restarts.
 func runDaemon() error {
+	// Log to stderr without our own timestamp: journald stamps each line and
+	// captures stderr, so a second timestamp is just noise.
+	log.SetOutput(os.Stderr)
+	log.SetFlags(0)
+	log.SetPrefix("snoozer: ")
 	s, err := newStore()
 	if err != nil {
 		return err
