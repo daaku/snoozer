@@ -129,6 +129,9 @@ func TestBuildAlarmErrors(t *testing.T) {
 	if _, err := buildAlarm(referenceNow, "", "11am", "", "", false, "nope", "", ""); err == nil {
 		t.Error("bad snooze succeeded, want error")
 	}
+	if _, err := buildAlarm(referenceNow, "", "11am", "", "", false, "0", "", ""); err == nil {
+		t.Error("zero snooze succeeded, want error")
+	}
 	if _, err := buildAlarm(referenceNow, "0s", "", "", "", false, "", "", ""); err == nil {
 		t.Error("zero --in succeeded, want error")
 	}

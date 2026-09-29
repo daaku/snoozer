@@ -77,8 +77,8 @@ func parseDuration(s string, def time.Duration) (time.Duration, error) {
 	if err != nil {
 		return 0, serr.Errorf("invalid duration %q: %w", s, err)
 	}
-	if d < 0 {
-		return 0, serr.Errorf("duration must not be negative: %q", s)
+	if d <= 0 {
+		return 0, serr.Errorf("duration must be positive: %q", s)
 	}
 	return d, nil
 }
