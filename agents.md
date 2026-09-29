@@ -28,6 +28,36 @@ The config directory holds `alarms.json`, `alarms.lock`, `daemon.lock`,
 - `snoozer.service`, `PKGBUILD`, `license`: the systemd user unit and the
   Arch package that installs it.
 
+## State
+
+`alarms.json` is `{"alarms": [...]}`; each alarm is:
+
+```json
+{
+  "at": "2026-09-29T15:30:00+04:00",
+  "label": "School Pick Up",
+  "repeat": ["mon", "tue"],
+  "silent": true,
+  "snooze": "5m",
+  "timeout": "5m",
+  "sound": "custom.ogg"
+}
+```
+
+Only `at` (RFC 3339) is required. The rest fall back to their defaults when
+absent.
+
+## Zenity
+
+The GUI is one zenity question; the exit code decides the action: `0` is
+Snooze, anything else is Dismiss. The alarm's timeout is passed as
+`--timeout`, or omitted when the timeout is `0`.
+
+```sh
+zenity --question --modal --ok-label=Snooze --cancel-label=Dismiss \
+  --title=Alarm --icon=alarm --text='Time for a walk'
+```
+
 ## systemd
 
 `snoozer.service` is the user unit; the PKGBUILD installs it to
@@ -67,16 +97,23 @@ makepkg -si
   field.
 - `takeDue` claims a ring before the dialog opens: one-offs are removed and
   repeats are advanced. A crash mid-dialog therefore loses that ring.
+- Snoozing appends a one-off copy of the alarm (same label, silent, snooze,
+  timeout and sound, no repeat) at now plus the snooze duration.
+- The daemon sleeps only until the next ring; it never polls.
 - Defaults apply to empty optional fields: label `Alarm`, snooze `9m`,
   timeout `3m`, sound `alarm.ogg`. `timeout: "0"` disables the zenity
   timeout. `repeat` is stored canonical mon..sun, and `all` expands to seven.
-- mpv, zenity, missing sound files and missing audio devices are all non-fatal:
-  log and keep the dialog going.
+- While the dialog is open mpv loops the sound (`--loop=inf`) unless the
+  alarm is silent. mpv, zenity, missing sound files and missing audio devices
+  are all non-fatal: log and keep the dialog going.
+- Errors are wrapped with `github.com/daaku/serr`, the module's only
+  dependency.
 
 ## Gotchas
 
-- SIGUSR1 is the only reschedule signal; `notifyDaemon` finds the pid in
-  `daemon.pid`. The daemon re-reads state and rebuilds its timer on receipt.
+- The CLI writes the state file itself and only pokes the daemon with
+  SIGUSR1; `notifyDaemon` finds the pid in `daemon.pid`. On receipt the
+  daemon re-reads state and rebuilds its timer.
 - On startup the daemon rings any alarm whose `At` is already in the past
   (catch-up), then advances or drops it.
 - The daemon does not fork. It runs in the foreground and logs to stderr with
