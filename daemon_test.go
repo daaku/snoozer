@@ -5,25 +5,45 @@ import (
 	"time"
 )
 
-func TestNextSleep(t *testing.T) {
-	now := referenceNow
-	cases := []struct {
-		name string
-		next time.Time
-		want time.Duration
-	}{
-		{"no alarms", time.Time{}, idleSleep},
-		{"overdue", now.Add(-time.Hour), 0},
-		{"imminent", now.Add(5 * time.Second), 5 * time.Second},
-		{"at the cap", now.Add(sleepSlice), sleepSlice},
-		{"past the cap", now.Add(6 * time.Hour), sleepSlice},
+func TestSleeper(t *testing.T) {
+	sl, err := newSleeper()
+	if err != nil {
+		t.Skipf("no CLOCK_BOOTTIME timerfd: %v", err)
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := nextSleep(c.next, now); got != c.want {
-				t.Errorf("nextSleep(%s) = %s, want %s", c.next, got, c.want)
-			}
-		})
+	defer sl.close()
+
+	if err := sl.arm(time.Now().Add(80 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	if !woke(sl, 5*time.Second) {
+		t.Fatal("sleeper did not fire at its deadline")
+	}
+
+	// An overdue deadline fires immediately. This is the catch-up path after a
+	// suspend: boottime counted the machine's sleep, so the deadline is past.
+	if err := sl.arm(time.Now().Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if !woke(sl, 2*time.Second) {
+		t.Fatal("overdue deadline did not fire")
+	}
+
+	// With no alarms the timer is disarmed and stays quiet.
+	if err := sl.disarm(); err != nil {
+		t.Fatal(err)
+	}
+	if woke(sl, 200*time.Millisecond) {
+		t.Fatal("disarmed sleeper woke on its own")
+	}
+}
+
+// woke reports whether the sleeper woke within the limit.
+func woke(sl *sleeper, limit time.Duration) bool {
+	select {
+	case <-sl.C:
+		return true
+	case <-time.After(limit):
+		return false
 	}
 }
 

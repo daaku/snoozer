@@ -27,8 +27,8 @@ notification when an alarm is set by voice, so keep it a single line.
 - `main.go`: dispatch and the CLI. The `//go:embed alarm.ogg` lives here.
 - `alarm.go`: `Alarm`/`State`, defaults, `--at`/`--repeat` parsing, the
   `Summary` line the CLI prints, and the locked atomic store.
-- `daemon.go`: the singleton lock, the next-wake loop, mpv and zenity, and the
-  catch-up batch.
+- `daemon.go`: the singleton lock, the `CLOCK_BOOTTIME` sleeper, the ring
+  batch, mpv and zenity.
 - `alarm_test.go`: parsing, scheduling, and store tests.
 - `snoozer.service`, `PKGBUILD`, `license`: the systemd user unit and the
   Arch package that installs it.
@@ -109,24 +109,35 @@ makepkg -si
   means no sound.
 - Snoozing appends a one-off copy of the alarm (same label, silent, snooze,
   timeout and sound, no repeat) at now plus the snooze duration.
-- The daemon sleeps until the next ring but never past `sleepSlice`, and
-  re-reads the wall clock on every wake. Go timers use the monotonic clock,
-  which stops while the machine is suspended, so an uncapped sleep overshoots
-  by however long it slept; overdue alarms catch up instead of being dropped.
+- The daemon waits on one `CLOCK_BOOTTIME` timerfd (`sleeper`), not a Go
+  timer. Go timers use the monotonic clock, which stops while the machine is
+  suspended, so an alarm set before a suspend would come back hours after its
+  deadline. Boottime keeps counting through suspend, so the wait simply
+  returns already expired the moment the machine resumes: no wake-up polling,
+  and overdue alarms catch up instead of being dropped.
+- `arm` gives an overdue alarm one nanosecond, because a zero `itimerspec`
+  interval means disarm rather than "due now". With no alarms the timer is
+  disarmed and only SIGUSR1 can wake the loop.
 - Defaults apply to empty optional fields: label `Alarm`, snooze `9m`,
   timeout `3m`, sound `alarm.ogg`. `timeout: "0"` disables the zenity
   timeout. `repeat` is stored canonical mon..sun, and `all` expands to seven.
 - A missing custom sound falls back to the bundled `alarm.ogg` rather than to
   silence. mpv, zenity, missing files and missing audio devices are all
   non-fatal: log and keep the dialogs going.
-- Errors are wrapped with `github.com/daaku/serr`, the module's only
-  dependency.
+- Errors are wrapped with `github.com/daaku/serr`. The only other dependency
+  is `golang.org/x/sys/unix` for `timerfd`, which is the extended standard
+  library: hand-rolling `SYS_TIMERFD_CREATE` and the `itimerspec` layout for
+  every arch would be the worse trade.
+- Snoozer never wakes the machine. The wait uses `CLOCK_BOOTTIME`, not
+  `CLOCK_REALTIME_ALARM`, and the unit asks for no `CAP_WAKE_ALARM`, so an
+  alarm due during suspend rings as soon as the machine resumes rather than
+  pulling it out of sleep. That is the intended behaviour, not a gap.
 
 ## Gotchas
 
 - The CLI writes the state file itself and only pokes the daemon with
   SIGUSR1; `notifyDaemon` finds the pid in `daemon.pid`. On receipt the
-  daemon re-reads state and rebuilds its timer.
+  daemon re-reads state and re-arms the sleeper.
 - On startup the daemon rings any alarm whose `At` is already in the past
   (catch-up), then advances or drops it.
 - The daemon does not fork. It runs in the foreground and logs to stderr with
@@ -136,7 +147,3 @@ makepkg -si
   it is the daemon that rings, so an uninstalled or stopped daemon means
   alarms that are saved and never fire. The CLI says so on stderr, and
   `daemon.pid` is the tell.
-- Nothing sets an RTC alarm, so an alarm due during suspend rings when the
-  machine resumes, not while it sleeps. Waking the machine takes `timerfd` on
-  `CLOCK_REALTIME_ALARM` plus `WakeSystem=yes` on the unit, which needs
-  `CAP_WAKE_ALARM`.

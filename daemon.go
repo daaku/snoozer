@@ -16,18 +16,86 @@ import (
 	"time"
 
 	"github.com/daaku/serr"
+	"golang.org/x/sys/unix"
 )
 
-// Go timers run on the monotonic clock, which stops while the machine is
-// suspended, so one long sleep overshoots the alarm by however long the
-// machine slept. Sleeping in slices and re-reading the wall clock on each wake
-// bounds that overshoot to one slice. idleSleep covers having no alarms at
-// all, where nothing can be overdue and SIGUSR1 is the only wake-up.
-const (
-	sleepSlice = 30 * time.Second
-	idleSleep  = 24 * time.Hour
-	lateWarn   = time.Minute
-)
+// lateWarn is how late an alarm has to be before the daemon says so.
+const lateWarn = time.Minute
+
+// sleeper waits until a wall clock deadline. Go's own timers run on the
+// monotonic clock, which stops while the machine is suspended, so a timer set
+// before a suspend comes back hours after its deadline. This waits on a
+// CLOCK_BOOTTIME timerfd instead: boottime keeps counting through suspend, so
+// an alarm that came due while the machine slept is already expired the
+// instant it resumes. There is no wake-up polling, and it is not an alarm
+// clock: only CLOCK_REALTIME_ALARM with CAP_WAKE_ALARM can wake a sleeping
+// machine, which snoozer deliberately does not ask for.
+type sleeper struct {
+	f *os.File
+	C chan time.Time
+}
+
+// newSleeper creates the one timerfd the daemon waits on.
+func newSleeper() (*sleeper, error) {
+	fd, err := unix.TimerfdCreate(unix.CLOCK_BOOTTIME, unix.TFD_CLOEXEC|unix.TFD_NONBLOCK)
+	if err != nil {
+		return nil, serr.Wrap(err)
+	}
+	s := &sleeper{
+		f: os.NewFile(uintptr(fd), "snoozer-wake"),
+		C: make(chan time.Time, 1),
+	}
+	go s.loop()
+	return s, nil
+}
+
+// loop is the timerfd's only reader for the life of the daemon. Arming
+// replaces the deadline rather than making another timer, so re-arming on
+// every SIGUSR1 neither leaks a timer nor leaks a goroutine.
+func (s *sleeper) loop() {
+	buf := make([]byte, 8)
+	for {
+		if _, err := s.f.Read(buf); err != nil {
+			if !errors.Is(err, os.ErrClosed) {
+				log.Printf("wake timer: %v", err)
+			}
+			return // closed on shutdown, or the timerfd went away
+		}
+		select {
+		case s.C <- time.Now():
+		default:
+			// A wake is already pending; the daemon re-arms from state.
+		}
+	}
+}
+
+// arm fires at t. An overdue deadline fires on the next read, which is the
+// catch-up path after a suspend or a restart.
+func (s *sleeper) arm(t time.Time) error {
+	d := time.Until(t)
+	if d <= 0 {
+		// A zero interval means disarm, not "due now", so give it a nanosecond.
+		d = time.Nanosecond
+	}
+	its := &unix.ItimerSpec{Value: unix.NsecToTimespec(d.Nanoseconds())}
+	if err := unix.TimerfdSettime(s.fd(), 0, its, nil); err != nil {
+		return serr.Wrap(err)
+	}
+	return nil
+}
+
+// disarm stops the timer. With no alarms pending, SIGUSR1 is the only thing
+// that can change anything.
+func (s *sleeper) disarm() error {
+	if err := unix.TimerfdSettime(s.fd(), 0, &unix.ItimerSpec{}, nil); err != nil {
+		return serr.Wrap(err)
+	}
+	return nil
+}
+
+func (s *sleeper) fd() int { return int(s.f.Fd()) }
+
+func (s *sleeper) close() error { return serr.Wrap(s.f.Close()) }
 
 // runDaemon is the foreground loop: it sleeps until the next alarm, reloads
 // on SIGUSR1, and rings due alarms. Only one daemon runs at a time. systemd
@@ -58,43 +126,36 @@ func runDaemon() error {
 	defer signal.Stop(reload)
 
 	log.Printf("daemon started, pid %d", os.Getpid())
+	sl, err := newSleeper()
+	if err != nil {
+		return err
+	}
+	defer sl.close()
+
 	for {
 		next, err := s.nextWake()
 		if err != nil {
 			log.Printf("read state: %v", err)
 			next = time.Now().Add(time.Minute)
 		}
-		timer := time.NewTimer(nextSleep(next, time.Now()))
+		if next.IsZero() {
+			if err := sl.disarm(); err != nil {
+				log.Printf("disarm: %v", err)
+			}
+		} else if err := sl.arm(next); err != nil {
+			log.Printf("arm: %v", err)
+		}
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			log.Printf("daemon stopping")
 			return nil
 		case <-reload:
-			timer.Stop()
 			log.Printf("state changed, rescheduling")
-		case <-timer.C:
+		case <-sl.C:
 			if err := ringDue(ctx, s); err != nil {
 				log.Printf("ring: %v", err)
 			}
 		}
-	}
-}
-
-// nextSleep returns how long to wait before the next check. The cap is what
-// stops a suspended machine from oversleeping its alarms: see sleepSlice.
-func nextSleep(next, now time.Time) time.Duration {
-	if next.IsZero() {
-		return idleSleep
-	}
-	d := next.Sub(now)
-	switch {
-	case d < 0:
-		return 0
-	case d > sleepSlice:
-		return sleepSlice
-	default:
-		return d
 	}
 }
 
