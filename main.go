@@ -72,18 +72,22 @@ func run() error {
 	return nil
 }
 
-// notifyDaemon sends SIGUSR1 so a running daemon reloads the state file.
+// notifyDaemon sends SIGUSR1 so a running daemon reloads the state file. If
+// there is nobody to signal the alarm is saved but will never ring, which is
+// worth saying out loud.
 func notifyDaemon(s *store) {
+	const hint = "start it with: systemctl --user enable --now snoozer"
 	b, err := os.ReadFile(s.pidPath())
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "snoozer: daemon is not running, alarm saved but will not ring")
+		fmt.Fprintf(os.Stderr, "snoozer: daemon is not running, the alarm will not ring; %s\n", hint)
 		return
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "snoozer: bad daemon pid file %s; %s\n", s.pidPath(), hint)
 		return
 	}
 	if err := syscall.Kill(pid, syscall.SIGUSR1); err != nil {
-		fmt.Fprintf(os.Stderr, "snoozer: could not notify daemon: %v\n", err)
+		fmt.Fprintf(os.Stderr, "snoozer: daemon pid %d is gone, the alarm will not ring; %s\n", pid, hint)
 	}
 }

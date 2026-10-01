@@ -27,7 +27,8 @@ notification when an alarm is set by voice, so keep it a single line.
 - `main.go`: dispatch and the CLI. The `//go:embed alarm.ogg` lives here.
 - `alarm.go`: `Alarm`/`State`, defaults, `--at`/`--repeat` parsing, the
   `Summary` line the CLI prints, and the locked atomic store.
-- `daemon.go`: the singleton lock, the next-wake loop, mpv and zenity.
+- `daemon.go`: the singleton lock, the next-wake loop, mpv and zenity, and the
+  catch-up batch.
 - `alarm_test.go`: parsing, scheduling, and store tests.
 - `snoozer.service`, `PKGBUILD`, `license`: the systemd user unit and the
   Arch package that installs it.
@@ -99,17 +100,25 @@ makepkg -si
 - `Alarm.At` is always the next absolute ring time, including for repeating
   alarms. `takeDue` advances it after a ring; there is no separate first-ring
   field.
-- `takeDue` claims a ring before the dialog opens: one-offs are removed and
-  repeats are advanced. A crash mid-dialog therefore loses that ring.
+- `takeDue` claims everything due before any dialog opens: one-offs are
+  removed and repeats are advanced. A crash mid-batch loses those rings.
+- Everything due rings at once, one zenity process per alarm, so one alarm can
+  never hide the next behind its own timeout.
+- The batch plays exactly one looping sound: `firstNoisy`, the earliest alarm
+  that is not silent, and it stops when the last dialog closes. All silent
+  means no sound.
 - Snoozing appends a one-off copy of the alarm (same label, silent, snooze,
   timeout and sound, no repeat) at now plus the snooze duration.
-- The daemon sleeps only until the next ring; it never polls.
+- The daemon sleeps until the next ring but never past `sleepSlice`, and
+  re-reads the wall clock on every wake. Go timers use the monotonic clock,
+  which stops while the machine is suspended, so an uncapped sleep overshoots
+  by however long it slept; overdue alarms catch up instead of being dropped.
 - Defaults apply to empty optional fields: label `Alarm`, snooze `9m`,
   timeout `3m`, sound `alarm.ogg`. `timeout: "0"` disables the zenity
   timeout. `repeat` is stored canonical mon..sun, and `all` expands to seven.
-- While the dialog is open mpv loops the sound (`--loop=inf`) unless the
-  alarm is silent. mpv, zenity, missing sound files and missing audio devices
-  are all non-fatal: log and keep the dialog going.
+- A missing custom sound falls back to the bundled `alarm.ogg` rather than to
+  silence. mpv, zenity, missing files and missing audio devices are all
+  non-fatal: log and keep the dialogs going.
 - Errors are wrapped with `github.com/daaku/serr`, the module's only
   dependency.
 
@@ -123,3 +132,11 @@ makepkg -si
 - The daemon does not fork. It runs in the foreground and logs to stderr with
   no timestamp of its own, so a supervisor such as systemd owns backgrounding,
   restarts and the journal, and journald's stamp is the only one.
+- Catch-up only happens while the machine is awake, and only if the daemon is:
+  it is the daemon that rings, so an uninstalled or stopped daemon means
+  alarms that are saved and never fire. The CLI says so on stderr, and
+  `daemon.pid` is the tell.
+- Nothing sets an RTC alarm, so an alarm due during suspend rings when the
+  machine resumes, not while it sleeps. Waking the machine takes `timerfd` on
+  `CLOCK_REALTIME_ALARM` plus `WakeSystem=yes` on the unit, which needs
+  `CAP_WAKE_ALARM`.
